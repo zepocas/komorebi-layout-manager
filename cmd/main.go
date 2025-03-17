@@ -8,7 +8,6 @@ import (
 	"log"
 	"net"
 	"os"
-	"os/exec"
 	"os/signal"
 )
 
@@ -60,22 +59,20 @@ func handleConnection(conn net.Conn) {
 	}(conn)
 
 	reader := bufio.NewReader(conn)
-
-	stateCmd := exec.Command("komorebic", "state")
-	stateCmd.Stdout = os.Stdout
-	stateCmd.Stderr = os.Stderr
-	if err := stateCmd.Start(); err != nil {
-		log.Fatalf("Error getting komorebi state: %v", err)
-	}
-
+	tracker := internal.NewStateTracker()
 	for {
-		message, err := reader.ReadString('\n')
+		event, err := reader.ReadString('\n')
 		if err != nil {
 			log.Printf("Error reading from connection: %v", err)
 			return
 		}
-		// we should parse this json into a event struct
 
-		fmt.Println(message)
+		// we should parse this json into a event struct
+		err = tracker.ProcessEvent(event)
+		tracker.PrintSummary()
+		if err != nil {
+			log.Fatal(err)
+		}
+
 	}
 }

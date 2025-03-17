@@ -13,8 +13,8 @@ type KomorebiEvent struct {
 
 // EventInfo represents the event part of the komorebi event
 type EventInfo struct {
-	Type    string        `json:"type"`
-	Content []interface{} `json:"content"`
+	Type    string          `json:"type"`
+	Content json.RawMessage `json:"content"`
 }
 
 // KomorebiState represents the state of the window manager

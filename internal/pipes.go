@@ -16,10 +16,7 @@ func SubscribePipe(shortPipeName string) {
 
 	if err := subscribeCmd.Start(); err != nil {
 		log.Fatalf("Error starting subscribe process: %v", err)
-	} else {
-		log.Println("No error on subscribe-pipe")
 	}
-
 }
 
 func CreatePipe() (string, *npipe.PipeListener) {
@@ -30,13 +27,6 @@ func CreatePipe() (string, *npipe.PipeListener) {
 	if err != nil {
 		log.Fatalf("Error creating pipe: %v", err)
 	}
-
-	//defer func(listener *npipe.PipeListener) {
-	//	err := listener.Close()
-	//	if err != nil {
-	//		log.Fatal(err)
-	//	}
-	//}(listener)
 
 	fmt.Printf("Created pipe: %s\n", pipeName)
 	return shortPipeName, listener
