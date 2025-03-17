@@ -1,70 +1,81 @@
 package main
 
 import (
-    "bufio"
-    "fmt"
-    "log"
-    "os"
-    "os/exec"
-    "os/signal"
-    "syscall"
-    "time"
-
-    "github.com/natefinch/npipe"
+	"bufio"
+	"fmt"
+	"github.com/natefinch/npipe"
+	"github.com/zepocas/komorebi-layout-manager/internal"
+	"log"
+	"net"
+	"os"
+	"os/exec"
+	"os/signal"
 )
 
 func main() {
-    // 1. Start komorebi subscribe-pipe (SYNCHRONOUSLY and WAIT)
-    shortPipeName := "komorebi-layout"
-    pipeName := `\\.\pipe\` + shortPipeName
+	shortPipeName, listener := internal.CreatePipe()
+	defer func(listener *npipe.PipeListener) {
+		err := listener.Close()
+		if err != nil {
+			log.Fatalf("Fatal while closing listener: %v", err)
+		}
+	}(listener)
 
-    cmd := exec.Command("komorebic", "subscribe-pipe", shortPipeName)
-    err := cmd.Run() // Wait for the command to finish
-    if err != nil {
-        log.Fatalf("Error running komorebi subscribe-pipe: %v", err)
-    }
+	internal.SubscribePipe(shortPipeName)
 
-    // 2. Connect to the Named Pipe (Windows-Specific) - Retry logic added
-    var conn *npipe.PipeConn // Correct type: *npipe.PipeConn
+	// Handle Ctrl+C gracefully
+	c := make(chan os.Signal, 1)
+	signal.Notify(c, os.Interrupt)
 
-    for i := 0; i < 5; i++ {
-        log.Println("Connecting to pipe")
-        conn, err = npipe.Dial(pipeName) // Dial returns a *npipe.PipeConn
-        if err == nil {
-            log.Println("Connection successful")
-            break // Connection successful
-        }
-        log.Printf("Attempt %d: Error connecting to named pipe: %v", i+1, err)
-        time.Sleep(500) // Wait before retrying
-    }
+	go func() {
+		i := 1
+		for {
+			conn, err := listener.Accept()
+			if err != nil {
+				log.Printf("Error accepting connection: %v", err)
+				if i == 10 {
+					break
+				}
+				i++
+				continue
+			}
+			log.Println("New connection accepted!")
 
-    if err != nil {
-        log.Fatalf("Failed to connect to named pipe after multiple attempts: %v", err)
-    }
-    defer conn.Close() // Close the connection
+			go handleConnection(conn)
+		}
+	}()
 
-    fmt.Println("Connected to Komorebi named pipe. Listening for events...")
+	// Wait for Ctrl+C
+	<-c
+	fmt.Println("\nShutting down...")
+}
 
-    // 3. Event Loop (using bufio.NewReader for io.Reader)
-    reader := bufio.NewReader(conn) // Use bufio.NewReader with the connection
+func handleConnection(conn net.Conn) {
+	defer func(conn net.Conn) {
+		err := conn.Close()
+		if err != nil {
+			log.Fatalf("Fatal connection error: %v", err)
 
-    go func() {
-        for {
-            line, err := reader.ReadString('\n') // Read until newline
-            if err != nil {
-                log.Printf("Error reading from pipe: %v", err)
-                break // Or handle the error as needed
-            }
-            eventData := line[:len(line)-1] // Remove trailing newline
-            fmt.Printf("Received event: %s\n", eventData)
-            // TODO: Process the event data (unmarshal, act upon it)
-        }
-    }()
+		}
+	}(conn)
 
-    // 4. Graceful Shutdown
-    sigchan := make(chan os.Signal, 1)
-    signal.Notify(sigchan, syscall.SIGINT, syscall.SIGTERM)
-    <-sigchan
+	reader := bufio.NewReader(conn)
 
-    fmt.Println("Shutting down...")
+	stateCmd := exec.Command("komorebic", "state")
+	stateCmd.Stdout = os.Stdout
+	stateCmd.Stderr = os.Stderr
+	if err := stateCmd.Start(); err != nil {
+		log.Fatalf("Error getting komorebi state: %v", err)
+	}
+
+	for {
+		message, err := reader.ReadString('\n')
+		if err != nil {
+			log.Printf("Error reading from connection: %v", err)
+			return
+		}
+		// we should parse this json into a event struct
+
+		fmt.Println(message)
+	}
 }
